@@ -1,0 +1,15 @@
+{
+  "sweep": {
+    "queryLimit": 250
+  },
+  "cache": {
+    "snapshotPath": "agent.snapshot.json",
+    "maxStaleHours": 24
+  },
+  "updates": {
+    "enabled": true,
+    "source": "patcon",
+    "channel": "stable",
+    "checkIntervalMinutes": 60
+  }
+}

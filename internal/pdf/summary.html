@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Dental Benefits Summary</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --green:   #1a9460;
+    --red:     #c0392b;
+    --grey40:  #999999;
+    --amber:   #b45309;
+    --page-bg: #eef2f7;
+    --white:   #ffffff;
+    --light:   #f7f8fa;
+    --border:  #e0e4ec;
+    --text:    #111111;
+    --muted:   #444444;
+    --hdr-bg:  #f8f9fb;
+    --hdr-border: #e0e4ec;
+    --blue:    #1a3a6b;
+    --sky:     #2e6cb8;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: var(--page-bg);
+    color: var(--text);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  @page { size: letter; margin: 0.35in; }
+
+  @media print {
+    body { background: #fff; font-size: 10.5px; }
+    .page { box-shadow: none !important; margin: 0 0 10px !important; border-radius: 0 !important; }
+  }
+
+  .wrapper { max-width: 880px; margin: 0 auto; padding: 12px 10px 36px; }
+
+  .page {
+    background: var(--white);
+    border-radius: 10px;
+    box-shadow: 0 2px 18px rgba(26,58,107,.09);
+    margin-bottom: 18px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+  }
+
+  /* ── TOP HEADER ── */
+  .top-header {
+    background: var(--hdr-bg);
+    border-bottom: 1px solid var(--hdr-border);
+    padding: 7px 14px 6px;
+    display: flex; justify-content: space-between; align-items: flex-start;
+    gap: 16px;
+  }
+  .top-header-left .report-label {
+    font-size: 8.5px; font-weight: 600; letter-spacing: .6px;
+    text-transform: uppercase; color: #777; margin-bottom: 2px;
+  }
+  .top-header-left .patient-name {
+    font-family: 'DM Serif Display', Georgia, serif;
+    font-size: 20px; color: var(--text); line-height: 1.08; letter-spacing: 0;
+  }
+  .top-header-right {
+    text-align: right; font-size: 10px; color: var(--muted); line-height: 1.5; padding-top: 1px;
+    max-width: 44%;
+  }
+  .top-header-right .carrier-line { font-weight: 700; color: var(--text); font-size: 10.5px; }
+  .top-header-right .hdr-key { font-weight: 600; color: var(--text); }
+
+  /* ── STATUS BANNER ── */
+  .status-banner {
+    width: 100%; padding: 5px 14px;
+    font-size: 11px; font-weight: 700; letter-spacing: 1px;
+    text-transform: uppercase; text-align: center;
+    display: flex; align-items: center; justify-content: center; gap: 9px;
+  }
+  .status-banner.active   { background: var(--green);  color: #fff; }
+  .status-banner.inactive { background: var(--red);    color: #fff; }
+  .status-banner.notfound { background: var(--grey40); color: #fff; }
+  .status-dot { width: 7px; height: 7px; border-radius: 50%; background: rgba(255,255,255,.85); flex-shrink: 0; }
+
+  /* ── INFO GRID ── */
+  .info-grid { display: grid; grid-template-columns: 1fr 1fr; border-bottom: 1px solid var(--hdr-border); }
+  .info-col { padding: 8px 14px; }
+  .info-col:first-child { border-right: 1px solid var(--hdr-border); background: var(--hdr-bg); }
+  .info-col:last-child  { background: var(--white); }
+  .info-col-title {
+    font-size: 9px; font-weight: 700; letter-spacing: .7px;
+    text-transform: uppercase; color: #888;
+    margin-bottom: 5px; padding-bottom: 3px; border-bottom: 1px solid var(--hdr-border);
+  }
+  .info-row { display: flex; justify-content: space-between; gap: 10px; padding: 1.5px 0; font-size: 10.5px; }
+  .info-label { color: var(--muted); font-weight: 500; flex-shrink: 0; }
+  .info-val   { color: var(--text);  font-weight: 600; text-align: right; }
+
+  /* ── SECTION TITLE ── */
+  .section-title { padding: 9px 14px 6px; border-bottom: 1px solid var(--border); }
+  .section-title h2 {
+    font-family: 'DM Serif Display', Georgia, serif;
+    font-size: 13px; color: var(--text); letter-spacing: 0;
+  }
+
+  /* ── ACCUMULATORS ── */
+  .acc-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    gap: 8px; padding: 10px 14px 12px;
+  }
+  .acc-card {
+    background: var(--light); border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px 12px;
+    position: relative; overflow: hidden;
+  }
+  .acc-card::before {
+    content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+    background: var(--sky); border-radius: 8px 0 0 8px;
+  }
+  .acc-card.met::before { background: var(--green); }
+  .acc-label       { font-size: 9px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); font-weight: 600; margin-bottom: 2px; }
+  .acc-scope       { font-size: 8px; color: var(--sky); font-weight: 700; letter-spacing: .5px; text-transform: uppercase; margin-bottom: 5px; }
+  .acc-avail       { font-size: 19px; font-weight: 800; color: var(--text); line-height: 1; font-family: 'DM Serif Display', Georgia, serif; }
+  .acc-avail-label { font-size: 8.5px; color: var(--muted); margin-top: 1px; margin-bottom: 6px; font-weight: 700; }
+  .acc-bar         { height: 4px; background: var(--border); border-radius: 3px; overflow: hidden; margin-bottom: 4px; }
+  .acc-bar-fill    { height: 100%; border-radius: 3px; background: var(--sky); }
+  .acc-card.met .acc-bar-fill { background: var(--green); }
+  .acc-usage       { font-size: 9.5px; color: var(--muted); display: flex; justify-content: space-between; }
+  .acc-shared      { font-size: 9px; color: var(--text); font-weight: 700; margin: -2px 0 6px; }
+  .acc-note        { font-size: 8.5px; color: var(--muted); font-style: italic; margin-top: 4px; }
+  .met-tag         { display: inline-block; background: #d1fae5; color: #065f46; font-size: 8.5px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; padding: 1px 6px; border-radius: 3px; margin-top: 4px; }
+
+  /* ── PLAN PROVISIONS ── */
+  .prov-wrap { padding: 0 14px 12px; }
+  .prov-table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+  .prov-table tr { border-bottom: 1px solid var(--border); }
+  .prov-table tr:last-child { border-bottom: none; }
+  .prov-table td { padding: 7px 12px; vertical-align: top; color: var(--text); }
+  .prov-table td:first-child { font-weight: 700; width: 185px; font-size: 11px; }
+  .prov-table tr:nth-child(even) td { background: var(--light); }
+
+  .note-box {
+    margin: 10px 14px 12px;
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--amber);
+    border-radius: 8px;
+    background: #fffbeb;
+    padding: 9px 12px;
+    font-size: 11px;
+    color: var(--text);
+    font-weight: 600;
+  }
+
+  /* ── NETWORK MATRIX ── */
+  .matrix-wrap { padding: 0 20px 18px; overflow-x: auto; }
+  .matrix-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  .matrix-table th { background: var(--blue); color: white; padding: 10px 14px; text-align: center; font-size: 10.5px; font-weight: 700; letter-spacing: .3px; }
+  .matrix-table th:first-child { text-align: left; }
+  .matrix-table td { padding: 10px 14px; border-bottom: 1px solid var(--border); text-align: center; color: var(--text); font-weight: 800; }
+  .matrix-table td:first-child { text-align: left; font-weight: 600; }
+  .matrix-table tr:nth-child(even) td { background: var(--light); }
+
+  /* ── PROCEDURE CODE CARDS ── */
+  .tp-wrap { padding: 0 20px 18px; }
+  .tp-card { border: 1px solid var(--border); border-radius: 8px; margin-bottom: 10px; overflow: hidden; page-break-inside: avoid; }
+  .tp-card-header {
+    display: flex; align-items: center; padding: 8px 14px;
+    background: var(--light); border-bottom: 1px solid var(--border);
+    gap: 10px; flex-wrap: wrap;
+  }
+  .tp-code { font-size: 9.5px; font-weight: 700; color: var(--text); letter-spacing: .5px; background: var(--border); padding: 2px 8px; border-radius: 3px; white-space: nowrap; }
+  .tp-desc { font-size: 12px; font-weight: 600; color: var(--text); flex: 1; }
+  .tp-cov  { font-size: 13px; font-weight: 800; color: var(--text); white-space: nowrap; }
+  .tp-status { display: inline-flex; align-items: center; gap: 4px; font-size: 9.5px; font-weight: 700; padding: 2px 9px; border-radius: 100px; white-space: nowrap; }
+  .tp-status.eligible { background: #d1fae5; color: #065f46; }
+  .tp-status.risky    { background: #fef3c7; color: #92400e; }
+  .tp-status.unknown  { background: #e5e7eb; color: #374151; }
+  .tp-status.denied   { background: #fee2e2; color: #991b1b; }
+  .tp-card-body { padding: 10px 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 6px 24px; font-size: 11px; }
+  .full-row { grid-column: 1 / -1; }
+  .tp-detail-label { font-size: 9px; text-transform: uppercase; letter-spacing: .4px; color: var(--muted); font-weight: 600; }
+  .tp-detail-val        { color: var(--text); margin-top: 1px; font-weight: 500; }
+  .tp-detail-val.warn   { color: var(--amber); font-weight: 700; }
+  .tp-detail-val.danger { color: var(--red);   font-weight: 700; }
+
+</style>
+</head>
+<body>
+<div class="wrapper">
+
+{{- $statusClass := (statusClass .Patient.StatusLabel) -}}
+{{- $basicReport := basicReport . -}}
+{{- $sparseReport := sparseReport . -}}
+{{- $maximums := displayAccumulators .Maximums -}}
+{{- $deductibles := displayAccumulators .Deductibles -}}
+{{- $codes := displayCodes .Codes -}}
+
+<!-- ═══════════════════════════════════════════════════════
+     PAGE 1 — Patient · Plan · Accumulators
+     ═══════════════════════════════════════════════════════ -->
+<div class="page">
+
+  <div class="top-header">
+    <div class="top-header-left">
+      <div class="report-label">Dental Eligibility Report</div>
+      <div class="patient-name">{{.Patient.FullName}}</div>
+    </div>
+    <div class="top-header-right">
+      <div class="carrier-line">{{short .Plan.Carrier 72}}</div>
+      <div><span class="hdr-key">Verified :</span> {{.GeneratedAt}}</div>
+      {{if .Source}}<div><span class="hdr-key">Source :</span> {{sourceLabel .Source}}</div>{{end}}
+    </div>
+  </div>
+
+  <div class="status-banner {{$statusClass}}">
+    <div class="status-dot"></div>
+    {{.Patient.StatusLabel}}
+  </div>
+
+  <div class="info-grid">
+    <div class="info-col">
+      <div class="info-col-title">Patient</div>
+      <div class="info-row"><span class="info-label">Full Name</span><span class="info-val">{{.Patient.FullName}}</span></div>
+      {{if .Patient.DateOfBirth}}<div class="info-row"><span class="info-label">Date of Birth</span><span class="info-val">{{.Patient.DateOfBirth}}</span></div>{{end}}
+      {{if .Patient.MemberID}}<div class="info-row"><span class="info-label">Member ID</span><span class="info-val">{{.Patient.MemberID}}</span></div>{{end}}
+      {{if .Patient.GroupNumber}}<div class="info-row"><span class="info-label">Group #</span><span class="info-val">{{.Patient.GroupNumber}}</span></div>{{end}}
+      {{if .Patient.MemberType}}<div class="info-row"><span class="info-label">Member Type</span><span class="info-val">{{.Patient.MemberType}}</span></div>{{end}}
+    </div>
+    <div class="info-col">
+      <div class="info-col-title">Plan &amp; Carrier</div>
+      {{if .Plan.Carrier}}<div class="info-row"><span class="info-label">Carrier</span><span class="info-val">{{.Plan.Carrier}}</span></div>{{end}}
+      {{if .Plan.PlanName}}<div class="info-row"><span class="info-label">Plan Name</span><span class="info-val">{{.Plan.PlanName}}</span></div>{{end}}
+      {{if .Plan.GroupName}}<div class="info-row"><span class="info-label">Group</span><span class="info-val">{{.Plan.GroupName}}</span></div>{{end}}
+      {{if .Network.DisplayName}}<div class="info-row"><span class="info-label">Network</span><span class="info-val">{{.Network.DisplayName}}</span></div>{{end}}
+      {{if .Plan.PlanDesign}}<div class="info-row"><span class="info-label">Plan Design</span><span class="info-val">{{.Plan.PlanDesign}}</span></div>{{end}}
+      {{if .StatusReason}}<div class="info-row"><span class="info-label">Reason</span><span class="info-val">{{.StatusReason}}</span></div>{{end}}
+      {{if .Plan.StateRegulated}}<div class="info-row"><span class="info-label">State Regulated</span><span class="info-val">{{yesNo .Plan.StateRegulated}}</span></div>{{end}}
+    </div>
+  </div>
+
+  {{if or $maximums $deductibles}}
+  <div class="section-title"><h2>Financial Accumulators</h2></div>
+  <div class="acc-grid">
+    {{range $maximums}}
+    <div class="acc-card{{if .IsMet}} met{{end}}">
+      <div class="acc-label">{{.Name}}</div>
+      <div class="acc-scope">{{.Scope}}</div>
+      {{if .Services}}<div class="acc-shared">Shared across {{join .Services " / "}}</div>{{end}}
+      <div class="acc-avail">{{dollar .Remaining}}</div>
+      <div class="acc-avail-label">Remaining</div>
+      <div class="acc-bar"><div class="acc-bar-fill" style="width:{{pct .Used .Amount}}%"></div></div>
+      <div class="acc-usage"><span>Used: {{dollar .Used}}</span><span>Total: {{dollar .Amount}}</span></div>
+      {{if .Note}}<div class="acc-note">{{.Note}}</div>{{end}}
+      {{if .IsMet}}<div class="met-tag">&#10003; Met</div>{{end}}
+    </div>
+    {{end}}
+    {{range $deductibles}}
+    <div class="acc-card{{if .IsMet}} met{{end}}">
+      <div class="acc-label">{{.Name}}</div>
+      <div class="acc-scope">{{.Scope}}</div>
+      {{if .Services}}<div class="acc-shared">{{join .Services " / "}}</div>{{end}}
+      <div class="acc-avail">{{dollar .Remaining}}</div>
+      <div class="acc-avail-label">Remaining</div>
+      <div class="acc-bar"><div class="acc-bar-fill" style="width:{{pct .Used .Amount}}%"></div></div>
+      <div class="acc-usage"><span>Used: {{dollar .Used}}</span><span>Total: {{dollar .Amount}}</span></div>
+      {{if .Note}}<div class="acc-note">{{.Note}}</div>{{end}}
+      {{if .IsMet}}<div class="met-tag">&#10003; Met</div>{{end}}
+    </div>
+    {{end}}
+  </div>
+  {{end}}
+
+  {{if .Plan.Provisions}}
+  <div class="section-title"><h2>Eligibility Details</h2></div>
+  <div class="prov-wrap">
+    <table class="prov-table"><tbody>
+      {{range .Plan.Provisions}}
+      <tr><td>{{.Label}}</td><td>{{.Value}}</td></tr>
+      {{end}}
+    </tbody></table>
+  </div>
+  {{end}}
+
+  {{if $sparseReport}}
+  <div class="section-title"><h2>Benefit Detail</h2></div>
+  <div class="note-box">The {{if .Source}}{{sourceLabel .Source}}{{else}}payer{{end}} benefits response did not include procedure-level benefits or financial accumulators for this run. The eligibility and plan details above are the available captured response.</div>
+  {{end}}
+
+</div>
+
+{{if not .StatusOnly}}
+
+{{- $hasPage2 := and (not $basicReport) (not $sparseReport) .Matrix -}}
+{{if $hasPage2}}
+<!-- ═══════════════════════════════════════════════════════
+     PAGE 2 — Plan Provisions · Network Matrix
+     ═══════════════════════════════════════════════════════ -->
+<div class="page">
+
+  {{if and .Matrix .MatrixColumns}}
+  <div class="section-title"><h2>Network Matrix &#8212; Coverage by Category</h2></div>
+  <div class="matrix-wrap">
+    <table class="matrix-table">
+      <thead><tr>
+        <th>Category</th>
+        {{range .MatrixColumns}}<th>{{.DisplayName}}</th>{{end}}
+      </tr></thead>
+      <tbody>
+        {{range .Matrix}}{{$row := .}}
+        <tr>
+          <td>{{.Category}}</td>
+          {{range $.MatrixColumns}}<td>{{index $row.Values .TierID}}</td>{{end}}
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{end}}
+
+</div>
+{{end}}
+
+{{if $codes}}
+<!-- ═══════════════════════════════════════════════════════
+     PAGE 3 — Procedure Code Coverage
+     ═══════════════════════════════════════════════════════ -->
+<div class="page">
+  <div class="section-title"><h2>Treatment Plan Coverage Benefits</h2></div>
+  <div class="tp-wrap">
+    {{range $codes}}
+    <div class="tp-card">
+      <div class="tp-card-header">
+        <span class="tp-code">{{.Code}}</span>
+        {{if .Description}}<span class="tp-desc">{{.Description}}</span>{{end}}
+        <span class="tp-cov">{{covPct .CoveragePercent}}</span>
+        <span class="tp-status {{riskClass .Risk.Level}}">{{riskIcon .Risk.Level}} {{riskLabel .Risk.Level}}</span>
+      </div>
+      <div class="tp-card-body">
+        {{if .NetworkRange}}
+        <div>
+          <div class="tp-detail-label">Network Range</div>
+          <div class="tp-detail-val">{{.NetworkRange}}</div>
+        </div>
+        {{end}}
+        {{if .PreApprovalRequired}}
+        <div>
+          <div class="tp-detail-label">Pre-Auth Required</div>
+          <div class="tp-detail-val warn">Yes &#8212; obtain authorization before procedure</div>
+        </div>
+        {{end}}
+        {{if .Frequency}}
+        <div>
+          <div class="tp-detail-label">Frequency Limit</div>
+          <div class="tp-detail-val">{{.Frequency.Summary}}</div>
+        </div>
+        {{if .Frequency.UsageSummary}}
+        <div>
+          <div class="tp-detail-label">{{if .Frequency.Exceeded}}&#9888; Usage (Exceeded){{else}}Usage{{end}}</div>
+          <div class="tp-detail-val{{if .Frequency.Exceeded}} danger{{end}}">{{.Frequency.UsageSummary}}</div>
+        </div>
+        {{end}}
+        {{end}}
+        {{if .Risk.Detail}}
+        <div>
+          <div class="tp-detail-label">Note</div>
+          <div class="tp-detail-val{{if eq (riskClass .Risk.Level) "risky"}} warn{{else if eq (riskClass .Risk.Level) "denied"}} danger{{end}}">{{.Risk.Detail}}</div>
+        </div>
+        {{end}}
+        {{if .DeductibleExempted}}
+        <div>
+          <div class="tp-detail-label">Deductible</div>
+          <div class="tp-detail-val">Exempted</div>
+        </div>
+        {{end}}
+        {{if .MaximumExempted}}
+        <div>
+          <div class="tp-detail-label">Annual Maximum</div>
+          <div class="tp-detail-val">Exempted</div>
+        </div>
+        {{end}}
+        {{if .CopayAmount}}
+        <div>
+          <div class="tp-detail-label">Copay</div>
+          <div class="tp-detail-val">{{.CopayAmount}}</div>
+        </div>
+        {{end}}
+        {{if .Limitations}}
+        <div class="full-row">
+          <div class="tp-detail-label">Limitations</div>
+          <div class="tp-detail-val">{{range $i, $l := .Limitations}}{{if $i}} &#183; {{end}}{{$l}}{{end}}</div>
+        </div>
+        {{end}}
+        {{if .TreatmentHistory}}
+        <div class="full-row">
+          <div class="tp-detail-label">Prior Service History</div>
+          <div class="tp-detail-val">{{range $i, $h := .TreatmentHistory}}{{if $i}} &#183; {{end}}{{$h.ServiceDate}}{{if $h.ToothCode}} T{{$h.ToothCode}}{{end}}{{if $h.Surfaces}} ({{$h.Surfaces}}){{end}}{{end}}</div>
+        </div>
+        {{end}}
+      </div>
+    </div>
+    {{end}}
+  </div>
+</div>
+{{end}}
+
+{{end}}{{/* end if not .StatusOnly */}}
+
+</div><!-- .wrapper -->
+</body>
+</html>

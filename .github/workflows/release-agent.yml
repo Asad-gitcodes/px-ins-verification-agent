@@ -1,0 +1,119 @@
+name: Release Agent
+
+# To create a stable release, run these from the repo root:
+#   git tag -a v1.0.0 -m "Release v1.0.0"
+#   git push origin v1.0.0
+#
+# To create a beta/prerelease:
+#   git tag -a v1.0.0-beta.3 -m "Release v1.0.0-beta.3"
+#   git push origin v1.0.0-beta.3
+#
+# Pushing a tag that matches v*.*.* or v*.*.*-* triggers this workflow. The
+# workflow builds px-ins-agent.exe, embeds version metadata, creates checksums/manifest,
+# and uploads everything as private GitHub Release assets for this repo.
+#
+# Release assets:
+#   px-ins-agent.exe       — the agent binary
+#   agent-updater.exe      — hot-swap updater
+#   px-ins-agent.exe.sha256 — checksum for verification
+#   manifest.json          — version metadata for auto-update
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+      - "v*.*.*-*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+          cache: true
+
+      - name: Test
+        shell: pwsh
+        run: go test ./...
+
+      - name: Build agent
+        shell: pwsh
+        run: |
+          $version = "${env:GITHUB_REF_NAME}".TrimStart("v")
+          $commit = "${env:GITHUB_SHA}".Substring(0, 7)
+          $builtAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+          $channel = "stable"
+          if ($version -match "-beta\.") {
+            $channel = "beta"
+          } elseif ($version -match "-rc\.") {
+            $channel = "rc"
+          } elseif ($version -match "-") {
+            $channel = "prerelease"
+          }
+
+          New-Item -ItemType Directory -Force dist | Out-Null
+
+          go build -o "dist\px-ins-agent.exe" `
+            -ldflags "-X insurance-benefit-agent-go/internal/version.Version=$version -X insurance-benefit-agent-go/internal/version.Commit=$commit -X insurance-benefit-agent-go/internal/version.BuiltAt=$builtAt" `
+            ./cmd/agent
+          go build -o "dist\agent-updater.exe" ./cmd/agent-updater
+
+          & ".\dist\px-ins-agent.exe" --version
+
+          $rodDir = go list -m -f "{{.Dir}}" github.com/go-rod/rod
+          $revisionLine = Select-String -Path (Join-Path $rodDir "lib\launcher\revision.go") -Pattern "RevisionDefault = (\d+)"
+          $browserRevision = $revisionLine.Matches[0].Groups[1].Value
+          $browserZipUrl = "https://storage.googleapis.com/chromium-browser-snapshots/Win_x64/$browserRevision/chrome-win.zip"
+          $browserZipDownload = "dist\chrome-win.zip"
+          $browserExtract = "dist\browser-extract"
+          $browserDir = "dist\browser"
+
+          Invoke-WebRequest -Uri $browserZipUrl -OutFile $browserZipDownload
+          Expand-Archive -Path $browserZipDownload -DestinationPath $browserExtract -Force
+          New-Item -ItemType Directory -Force $browserDir | Out-Null
+          Copy-Item -Path (Join-Path $browserExtract "chrome-win\*") -Destination $browserDir -Recurse -Force
+          Compress-Archive -Path $browserDir -DestinationPath "dist\browser.zip" -Force
+
+          $hash = (Get-FileHash "dist\px-ins-agent.exe" -Algorithm SHA256).Hash.ToLower()
+          "$hash  px-ins-agent.exe" | Set-Content "dist\px-ins-agent.exe.sha256"
+
+          @"
+          {
+            "version": "$version",
+            "commit": "$commit",
+            "builtAt": "$builtAt",
+            "channel": "$channel",
+            "asset": "px-ins-agent.exe",
+            "updaterAsset": "agent-updater.exe",
+            "sha256": "$hash"
+          }
+          "@ | Set-Content "dist\manifest.json"
+
+
+      - name: Detect prerelease
+        id: release_meta
+        shell: pwsh
+        run: |
+          $version = "${env:GITHUB_REF_NAME}".TrimStart("v")
+          $isPrerelease = $version.Contains("-")
+          "prerelease=$($isPrerelease.ToString().ToLower())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          prerelease: ${{ steps.release_meta.outputs.prerelease }}
+          files: |
+            dist/px-ins-agent.exe
+            dist/agent-updater.exe
+            dist/px-ins-agent.exe.sha256
+            dist/manifest.json
+            dist/browser.zip
