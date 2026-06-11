@@ -20,6 +20,7 @@ var sixDigitSMS = regexp.MustCompile(`\b(\d{6})\b`)
 type SMSConfig struct {
 	QueryURL       string
 	Token          string
+	QueryKey       string // database key for query.8px.us; falls back to OfficeKey if empty
 	OfficeKey      string
 	TimeoutMS      int
 	PollIntervalMS int
@@ -40,12 +41,14 @@ func SMSConfigFromScraperConfig(scraperConfig *models.ScraperConfig, officeKey s
 	}
 	queryURL, _ := apiMap["url"].(string)
 	token, _ := apiMap["token"].(string)
+	queryKey, _ := apiMap["key"].(string)
 	if queryURL == "" || token == "" {
 		return nil, fmt.Errorf("query API config requires url and token")
 	}
 	return &SMSConfig{
 		QueryURL:  queryURL,
 		Token:     token,
+		QueryKey:  queryKey,
 		OfficeKey: officeKey,
 	}, nil
 }
@@ -61,7 +64,7 @@ func GetSmsCodeByPattern(cfg SMSConfig, after time.Time, pattern *regexp.Regexp)
 	if cfg.QueryURL == "" {
 		return "", fmt.Errorf("SMS query URL is required")
 	}
-	timeout := durationFromMillis(cfg.TimeoutMS, 60*time.Second)
+	timeout := durationFromMillis(cfg.TimeoutMS, 90*time.Second)
 	pollInterval := durationFromMillis(cfg.PollIntervalMS, 3*time.Second)
 	deadline := time.Now().Add(timeout)
 
@@ -83,8 +86,12 @@ func GetSmsCodeByPattern(cfg SMSConfig, after time.Time, pattern *regexp.Regexp)
 }
 
 func pollSMSOnce(httpClient *http.Client, cfg SMSConfig, after time.Time, pattern *regexp.Regexp) (string, error) {
+	queryKey := cfg.QueryKey
+	if queryKey == "" {
+		queryKey = cfg.OfficeKey
+	}
 	body, err := json.Marshal(map[string]any{
-		"key":   cfg.OfficeKey,
+		"key":   queryKey,
 		"query": smsQuery,
 	})
 	if err != nil {
@@ -178,20 +185,13 @@ func parseSMSDateTime(raw string) (time.Time, error) {
 		"2006-01-02 15:04:05",
 	}
 
-	loc := time.Local
 	var lastErr error
-
 	for _, layout := range layouts {
-		var t time.Time
-		var err error
-
-		if layout == time.RFC3339 {
-			t, err = time.Parse(layout, raw)
-		} else {
-			t, err = time.ParseInLocation(layout, raw, loc)
-		}
+		// Parse as UTC — the DB (MariaDB) stores DateTimeReceived in UTC.
+		t, err := time.Parse(layout, raw)
 		if err == nil {
-			return t, nil
+			// Ensure the result is in UTC so comparisons against time.Now().UTC() are correct.
+			return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), time.UTC), nil
 		}
 		lastErr = err
 	}

@@ -1,0 +1,47 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run Agent (run-once)",
+      "type": "go",
+      "request": "launch",
+      "mode": "auto",
+      "program": "${workspaceFolder}/cmd/agent",
+      "args": [
+        "--office-key",   "YOUR_OFFICE_KEY",
+        "--patcon-url",   "https://patcon.8px.us/api/config/insSched/details/YOUR_OFFICE_KEY",
+        "--patcon-token", "YOUR_BEARER_TOKEN",
+        "--port",         "8080",
+        "--run-once"
+      ],
+      "env": {},
+      "showLog": true
+    },
+    {
+      "name": "Run Agent (headless OFF — watch browser)",
+      "type": "go",
+      "request": "launch",
+      "mode": "auto",
+      "program": "${workspaceFolder}/cmd/agent",
+      "args": [
+        "--office-key",   "YOUR_OFFICE_KEY",
+        "--patcon-url",   "https://patcon.8px.us/api/config/insSched/details/YOUR_OFFICE_KEY",
+        "--patcon-token", "YOUR_BEARER_TOKEN",
+        "--port",         "8080",
+        "--run-once"
+      ],
+      "env": {
+        "AGENT_HEADLESS": "false"
+      },
+      "showLog": true
+    },
+    {
+      "name": "Build only",
+      "type": "go",
+      "request": "launch",
+      "mode": "auto",
+      "program": "${workspaceFolder}/cmd/agent",
+      "args": ["--version"]
+    }
+  ]
+}

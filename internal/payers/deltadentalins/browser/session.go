@@ -117,12 +117,13 @@ func (s *Session) Login(input payers.SessionInput) error {
 	if err := nextBtn.Click(proto.InputMouseButtonLeft, 1); err != nil {
 		return fmt.Errorf("click Delta Dental Next: %w", err)
 	}
+	time.Sleep(2 * time.Second)
 
 	// ── Step 2: password → SIGN IN ────────────────────────────────────────────
 	// After clicking Next the portal loads a second form with #password.
 	// #username on this page is read-only (pre-filled) — do not touch it.
 	log.Printf("[DeltaDental] filling password")
-	passwordEl, err := page.Timeout(20 * time.Second).Element(`#password`)
+	passwordEl, err := page.Timeout(30 * time.Second).Element(`#password`)
 	if err != nil {
 		return fmt.Errorf("Delta Dental #password not found: %w", err)
 	}
