@@ -17,8 +17,8 @@ import (
 )
 
 const (
-	loginURL  = "https://www1.deltadentalins.com/dentists.html"
-	portalURL = "https://www1.deltadentalins.com/provider-tools/v2"
+	loginURL    = "https://provider.deltadental.com/dashboard/"
+	dashboardURL = "https://provider.deltadental.com/dashboard"
 )
 
 type Session struct {
@@ -71,101 +71,75 @@ func (s *Session) Browser() *rod.Browser {
 	return s.browser.Browser
 }
 
-// Login navigates to the Delta Dental provider portal and authenticates.
-// Mirrors the Node.js login() + waitForPortal() in index.js.
+// Login handles the new Delta Dental two-step login flow:
+//  Step 1 — enter username → click Next (#verify-user)
+//  Step 2 — enter password → click SIGN IN (#btn-login)
+//  Step 3 — MFA confirmation code if triggered
 func (s *Session) Login(input payers.SessionInput) error {
 	if s == nil || s.browser == nil || s.browser.Page == nil {
 		return fmt.Errorf("browser session is not initialized")
 	}
 	page := s.browser.Page
 
+	log.Printf("[DeltaDental] navigating to %s", loginURL)
 	if err := page.Navigate(loginURL); err != nil {
 		return fmt.Errorf("navigate to Delta Dental login: %w", err)
 	}
-	_ = page.Timeout(5 * time.Second).WaitLoad()
+	_ = page.Timeout(10 * time.Second).WaitLoad()
 
-	// Dismiss cookie consent banner if present.
-	if el, err := page.Timeout(3 * time.Second).Element(`#onetrust-accept-btn-handler`); err == nil {
-		if visible, _ := el.Visible(); visible {
-			_ = el.Click(proto.InputMouseButtonLeft, 1)
-			time.Sleep(500 * time.Millisecond)
-		}
+	// Fast path: session cookie still valid — already on dashboard.
+	if isOnDashboard(page) {
+		log.Printf("[DeltaDental] session still active, skipping login")
+		return s.browser.SaveStorageState(s.storageStatePath)
 	}
 
-	// Click "Log in / register" — target by href since the link always goes to /ciam/.
-	loginLink, err := page.Timeout(10 * time.Second).Element(`a[href*="/ciam/"]`)
+	// ── Step 1: username ──────────────────────────────────────────────────────
+	usernameEl, err := page.Timeout(20 * time.Second).Element(`#usernameInput`)
 	if err != nil {
-		return fmt.Errorf("login link not found: %w", err)
-	}
-	if err := loginLink.Click(proto.InputMouseButtonLeft, 1); err != nil {
-		return fmt.Errorf("click login link: %w", err)
-	}
-
-	// With valid session cookies Okta redirects straight to the portal — no form.
-	// Poll briefly before assuming the credentials form is needed.
-	if waitForPortalRedirect(page, 5*time.Second) {
-		if err := s.browser.SaveStorageState(s.storageStatePath); err != nil {
-			return err
-		}
-		return nil
-	}
-
-	// Session expired — Okta shows the username/password form.
-	usernameEl, err := page.Timeout(15 * time.Second).Element(
-		`input[name="identifier"], input[autocomplete="username"], input[aria-label="Username"]`,
-	)
-	if err != nil {
-		return fmt.Errorf("username field not found: %w", err)
+		return fmt.Errorf("Delta Dental username field not found: %w", err)
 	}
 	if err := usernameEl.Input(input.Credential.Username); err != nil {
-		return fmt.Errorf("fill username: %w", err)
+		return fmt.Errorf("fill Delta Dental username: %w", err)
 	}
 
-	// Tick "Keep me signed in" if present — Okta uses a stable data-se attribute.
-	if el, err := page.Timeout(2 * time.Second).Element(`[data-se-for-name="rememberMe"]`); err == nil {
-		if visible, _ := el.Visible(); visible {
-			_ = el.Click(proto.InputMouseButtonLeft, 1)
-		}
-	}
-
-	el, err := page.Element(`input[type="submit"][value="Next"]`)
+	nextBtn, err := page.Timeout(10 * time.Second).Element(`#verify-user`)
 	if err != nil {
-		return fmt.Errorf("fetch next button: %w", err)
+		return fmt.Errorf("Delta Dental Next button not found: %w", err)
 	}
-	if err := el.WaitVisible(); err != nil {
-		return fmt.Errorf("next button not visible: %w", err)
-	}
-	if err := el.Click(proto.InputMouseButtonLeft, 1); err != nil {
-		return fmt.Errorf("click next button: %w", err)
+	if err := nextBtn.Click(proto.InputMouseButtonLeft, 1); err != nil {
+		return fmt.Errorf("click Delta Dental Next: %w", err)
 	}
 
-	// Fill password.
-	passwordEl, err := page.Timeout(15 * time.Second).Element(`input[type="password"]`)
+	// ── Step 2: password ──────────────────────────────────────────────────────
+	passwordEl, err := page.Timeout(20 * time.Second).Element(`#password`)
 	if err != nil {
-		return fmt.Errorf("password field not found: %w", err)
+		return fmt.Errorf("Delta Dental password field not found: %w", err)
+	}
+	if err := passwordEl.Click(proto.InputMouseButtonLeft, 1); err != nil {
+		return fmt.Errorf("click Delta Dental password field: %w", err)
 	}
 	if err := passwordEl.Input(input.Password); err != nil {
-		return fmt.Errorf("fill password: %w", err)
+		return fmt.Errorf("fill Delta Dental password: %w", err)
 	}
 
-	verifyEl, err := page.Timeout(15 * time.Second).Element(`input[type="submit"][value="Verify"]`)
+	signInBtn, err := page.Timeout(10 * time.Second).Element(`#btn-login`)
 	if err != nil {
-		return fmt.Errorf("Verify button not found: %w", err)
+		return fmt.Errorf("Delta Dental SIGN IN button not found: %w", err)
 	}
-	if err := verifyEl.Click(proto.InputMouseButtonLeft, 1); err != nil {
-		return fmt.Errorf("click Verify: %w", err)
+	if err := signInBtn.Click(proto.InputMouseButtonLeft, 1); err != nil {
+		return fmt.Errorf("click Delta Dental SIGN IN: %w", err)
 	}
 
-	// After Verify: MFA screen or direct portal redirect.
-	state := detectPostLoginState(page)
-
-	if state != "portal" {
-		if err := handleMFA(page, state, input); err != nil {
-			return fmt.Errorf("MFA: %w", err)
+	// ── Step 3: MFA if triggered ──────────────────────────────────────────────
+	if waitForMFAPrompt(page, 10*time.Second) {
+		log.Printf("[DeltaDental] MFA prompt detected")
+		if err := handleMFA(page, input); err != nil {
+			return fmt.Errorf("Delta Dental MFA: %w", err)
 		}
 	}
 
-	if err := waitForProviderPortal(page, 60*time.Second); err != nil {
+	// ── Wait for dashboard ────────────────────────────────────────────────────
+	if err := waitForDashboard(page, 90*time.Second); err != nil {
 		return err
 	}
 
@@ -176,63 +150,21 @@ func (s *Session) Login(input payers.SessionInput) error {
 	return nil
 }
 
-// detectPostLoginState races between the MFA screens and a direct portal redirect.
-// Returns "mfa_select", "mfa_sms", "portal", or "timeout".
-func detectPostLoginState(page *rod.Page) string {
-	deadline := time.Now().Add(15 * time.Second)
-	for time.Now().Before(deadline) {
-		if waitVisible(page, `.authenticator-verify-list`, 300*time.Millisecond) {
-			return "mfa_select"
-		}
-		if waitVisible(page, `[data-se="phone_number"] a`, 300*time.Millisecond) {
-			return "mfa_sms"
-		}
-		if isOnProviderPortal(page) {
-			return "portal"
-		}
-	}
-	return "timeout"
+// isOnDashboard returns true when the browser is on the authenticated portal dashboard.
+func isOnDashboard(page *rod.Page) bool {
+	u := currentURL(page)
+	return strings.Contains(u, "provider.deltadental.com/dashboard") ||
+		strings.Contains(u, "portal.deltadental.com")
 }
 
-// waitForProviderPortal polls until the browser lands on the provider portal.
-// Mirrors the Node.js waitForPortal() logic in index.js.
-func waitForProviderPortal(page *rod.Page, timeout time.Duration) error {
+// waitForMFAPrompt returns true if the Confirmation Code input appears within timeout.
+func waitForMFAPrompt(page *rod.Page, timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		u := currentURL(page)
-
-		if strings.Contains(u, "/provider-tools") {
-			_ = page.Timeout(5 * time.Second).WaitLoad()
-			return nil
+		if isOnDashboard(page) {
+			return false
 		}
-		// Okta callback page — wait for JS redirect.
-		if strings.Contains(u, "/ciam/login") {
-			time.Sleep(time.Second)
-			continue
-		}
-
-		// Interstitial with a Continue / Proceed / Next button.
-		if el, err := page.Timeout(500*time.Millisecond).ElementR(`button`, `Continue|Proceed|Next`); err == nil {
-			if visible, _ := el.Visible(); visible {
-				_ = el.Click(proto.InputMouseButtonLeft, 1)
-				_ = page.Timeout(3 * time.Second).WaitLoad()
-				continue
-			}
-		}
-
-		time.Sleep(time.Second)
-	}
-	return fmt.Errorf("Delta Dental login did not reach provider portal: last URL=%s", currentURL(page))
-}
-
-func isOnProviderPortal(page *rod.Page) bool {
-	return strings.Contains(currentURL(page), "/provider-tools")
-}
-
-func waitForPortalRedirect(page *rod.Page, timeout time.Duration) bool {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if isOnProviderPortal(page) {
+		if waitVisible(page, `input[aria-label="Confirmation Code"]`, 500*time.Millisecond) {
 			return true
 		}
 		time.Sleep(300 * time.Millisecond)
@@ -240,13 +172,17 @@ func waitForPortalRedirect(page *rod.Page, timeout time.Duration) bool {
 	return false
 }
 
-// clickButton finds and clicks a button whose visible text matches pattern.
-func clickButton(page *rod.Page, pattern string) error {
-	el, err := page.Timeout(10*time.Second).ElementR(`button`, pattern)
-	if err != nil {
-		return fmt.Errorf("button %q not found: %w", pattern, err)
+// waitForDashboard polls until the browser lands on the authenticated dashboard.
+func waitForDashboard(page *rod.Page, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if isOnDashboard(page) {
+			_ = page.Timeout(5 * time.Second).WaitLoad()
+			return nil
+		}
+		time.Sleep(500 * time.Millisecond)
 	}
-	return el.Click(proto.InputMouseButtonLeft, 1)
+	return fmt.Errorf("Delta Dental login did not reach dashboard: last URL=%s", currentURL(page))
 }
 
 func storageStatePathFor(input payers.SessionInput) string {
@@ -289,3 +225,6 @@ func waitVisible(page *rod.Page, selector string, timeout time.Duration) bool {
 	visible, err := el.Visible()
 	return err == nil && visible
 }
+
+// Ensure the unused import of os is used via storageStatePathFor.
+var _ = os.Stat

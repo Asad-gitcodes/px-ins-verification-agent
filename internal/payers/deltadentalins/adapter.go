@@ -74,16 +74,6 @@ func (a *Adapter) Run(ctx context.Context, input payers.SessionInput) (payers.Ru
 	}
 
 	probe := ddapi.NewBrowserProbe(session)
-	dateOfService := normalizeProbeDate(input.Appointments[0].AppointmentDate)
-	// ProviderName field stores the mtvPlocId until a dedicated credential field is added.
-	baseContext, err := probe.DiscoverPracticeContext(dateOfService, input.Credential.ProviderName, input.Credential.Username)
-	if err != nil {
-		return summary, fmt.Errorf("discover Delta Dental practice context: %w", err)
-	}
-	// If mtvPlocId was freshly discovered (not in credential), persist it to snapshot.
-	if input.Credential.ProviderName == "" && baseContext.MtvPlocID != "" && input.PatchCredentialFn != nil {
-		input.PatchCredentialFn(PayerURL, baseContext.MtvPlocID)
-	}
 
 	outputDir := filepath.Join(
 		"artifacts",
@@ -104,21 +94,16 @@ func (a *Adapter) Run(ctx context.Context, input payers.SessionInput) (payers.Ru
 		appointment models.Appointment
 		tpCodes     []string
 		probePath   string
-		report      *advanced.PatientEligibilityReport // set when probe fails; bypasses bundle processing
+		report      *advanced.PatientEligibilityReport
 	}
 	var tasks []appointmentTask
 
-	// Phase 1: browser open — scrape all patients and write probe files.
+	// Phase 1: browser open — search each patient, write probe files.
 	for _, appointment := range input.Appointments {
 		select {
 		case <-ctx.Done():
 			return summary, ctx.Err()
 		default:
-		}
-
-		appointmentContext := *baseContext
-		if normalized := normalizeProbeDate(appointment.AppointmentDate); normalized != "" {
-			appointmentContext.DateOfService = normalized
 		}
 
 		var tpCodes []string
@@ -128,14 +113,16 @@ func (a *Adapter) Run(ctx context.Context, input payers.SessionInput) (payers.Ru
 
 		task := appointmentTask{appointment: appointment, tpCodes: tpCodes}
 
-		bundle, err := probe.SearchAndFetchPatient(appointmentContext, appointment)
+		bundle, err := probe.SearchAndFetchPatient(appointment)
 		if err != nil {
 			log.Printf("[DeltaDental] probe failed patNum=%s aptNum=%s: %v", appointment.PatNum, appointment.AptNum, err)
 			writeProbeError(tempProbeDir, appointment, err)
 			task.report = payers.BuildNotFoundReport(appointment)
 		} else if bundle == nil {
-			log.Printf("[DeltaDental] probe returned nil bundle patNum=%s aptNum=%s", appointment.PatNum, appointment.AptNum)
 			task.report = payers.BuildUnableToDetermineReport(appointment)
+		} else if bundle.NotFound {
+			log.Printf("[DeltaDental] member not found patNum=%s aptNum=%s", appointment.PatNum, appointment.AptNum)
+			task.report = payers.BuildNotFoundReport(appointment)
 		} else {
 			probePath, err := writeAPIBundle(tempProbeDir, appointment, bundle)
 			if err != nil {
@@ -288,28 +275,17 @@ func logDeltaProbeSummary(appointment models.Appointment, bundle *ddapi.PatientA
 	if bundle == nil {
 		return
 	}
-	benefitPackages := len(bundle.BenefitsPackages)
-	treatments := 0
-	for _, pkg := range bundle.BenefitsPackages {
-		if pkg == nil {
-			continue
-		}
-		treatments += len(pkg.Treatment)
+	name := ""
+	active := false
+	company := ""
+	hasBenefits := bundle.Benefits != nil
+	if bundle.MemberSearch != nil {
+		name = bundle.MemberSearch.SubscriberFirstName + " " + bundle.MemberSearch.SubscriberLastName
+		active = bundle.MemberSearch.ActiveStatus
+		company = bundle.MemberSearch.MemberCompanyName
 	}
-	history := 0
-	if bundle.TreatmentHistory != nil {
-		history = len(bundle.TreatmentHistory.Procedures)
-	}
-	additional := 0
-	if bundle.AdditionalBenefits != nil {
-		additional = len(bundle.AdditionalBenefits.AdditionalBenefits)
-	}
-	maximums := 0
-	if bundle.MaximumsDeductibles != nil {
-		maximums = len(bundle.MaximumsDeductibles.MaximumsInfo)
-	}
-	log.Printf("[DeltaDental] probe summary patNum=%s aptNum=%s personId=%s benefitPackages=%d treatments=%d history=%d additional=%d maximums=%d file=%s",
-		appointment.PatNum, appointment.AptNum, bundle.SearchResult.PersonID, benefitPackages, treatments, history, additional, maximums, probePath)
+	log.Printf("[DeltaDental] probe summary patNum=%s aptNum=%s name=%q active=%v company=%q hasBenefits=%v file=%s",
+		appointment.PatNum, appointment.AptNum, name, active, company, hasBenefits, probePath)
 }
 
 func writeAdvancedResult(outputDir string, appointment models.Appointment, report *advanced.PatientEligibilityReport) {
