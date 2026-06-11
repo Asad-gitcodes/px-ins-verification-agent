@@ -17,8 +17,8 @@ import (
 )
 
 const (
-	loginURL    = "https://provider.deltadental.com/dashboard/"
-	dashboardURL = "https://provider.deltadental.com/dashboard"
+	// Step-1 login page — enter username only.
+	loginURL = "https://provider.deltadental.com/dashboard/"
 )
 
 type Session struct {
@@ -27,6 +27,7 @@ type Session struct {
 	hasStorageState  bool
 }
 
+// Launch opens a Chromium instance and loads the saved session cookies (if any).
 func Launch(input payers.SessionInput) (*Session, error) {
 	storageStatePath := storageStatePathFor(input)
 	_, statErr := os.Stat(storageStatePath)
@@ -71,10 +72,16 @@ func (s *Session) Browser() *rod.Browser {
 	return s.browser.Browser
 }
 
-// Login handles the new Delta Dental two-step login flow:
-//  Step 1 — enter username → click Next (#verify-user)
-//  Step 2 — enter password → click SIGN IN (#btn-login)
-//  Step 3 — MFA confirmation code if triggered
+// Login authenticates against the new Delta Dental provider portal.
+//
+// The portal uses a 3-step sequence:
+//  1. Enter username in #usernameInput → click #verify-user (Next).
+//  2. Enter password in #password → click #btn-login (SIGN IN).
+//     (#username is the pre-filled readonly display of the chosen user — skip it.)
+//  3. If MFA fires: fill input[aria-label="Confirmation Code"] → click Confirm.
+//
+// On success, saves the auth cookie state to disk so the next run reuses the
+// session and skips the login form entirely.
 func (s *Session) Login(input payers.SessionInput) error {
 	if s == nil || s.browser == nil || s.browser.Page == nil {
 		return fmt.Errorf("browser session is not initialized")
@@ -87,16 +94,17 @@ func (s *Session) Login(input payers.SessionInput) error {
 	}
 	_ = page.Timeout(10 * time.Second).WaitLoad()
 
-	// Fast path: session cookie still valid — already on dashboard.
+	// ── Fast path: session cookie still valid ─────────────────────────────────
 	if isOnDashboard(page) {
 		log.Printf("[DeltaDental] session still active, skipping login")
 		return s.browser.SaveStorageState(s.storageStatePath)
 	}
 
-	// ── Step 1: username ──────────────────────────────────────────────────────
+	// ── Step 1: username → Next ───────────────────────────────────────────────
+	log.Printf("[DeltaDental] filling username")
 	usernameEl, err := page.Timeout(20 * time.Second).Element(`#usernameInput`)
 	if err != nil {
-		return fmt.Errorf("Delta Dental username field not found: %w", err)
+		return fmt.Errorf("Delta Dental #usernameInput not found: %w", err)
 	}
 	if err := usernameEl.Input(input.Credential.Username); err != nil {
 		return fmt.Errorf("fill Delta Dental username: %w", err)
@@ -104,16 +112,19 @@ func (s *Session) Login(input payers.SessionInput) error {
 
 	nextBtn, err := page.Timeout(10 * time.Second).Element(`#verify-user`)
 	if err != nil {
-		return fmt.Errorf("Delta Dental Next button not found: %w", err)
+		return fmt.Errorf("Delta Dental #verify-user (Next) not found: %w", err)
 	}
 	if err := nextBtn.Click(proto.InputMouseButtonLeft, 1); err != nil {
 		return fmt.Errorf("click Delta Dental Next: %w", err)
 	}
 
-	// ── Step 2: password ──────────────────────────────────────────────────────
+	// ── Step 2: password → SIGN IN ────────────────────────────────────────────
+	// After clicking Next the portal loads a second form with #password.
+	// #username on this page is read-only (pre-filled) — do not touch it.
+	log.Printf("[DeltaDental] filling password")
 	passwordEl, err := page.Timeout(20 * time.Second).Element(`#password`)
 	if err != nil {
-		return fmt.Errorf("Delta Dental password field not found: %w", err)
+		return fmt.Errorf("Delta Dental #password not found: %w", err)
 	}
 	if err := passwordEl.Click(proto.InputMouseButtonLeft, 1); err != nil {
 		return fmt.Errorf("click Delta Dental password field: %w", err)
@@ -124,7 +135,7 @@ func (s *Session) Login(input payers.SessionInput) error {
 
 	signInBtn, err := page.Timeout(10 * time.Second).Element(`#btn-login`)
 	if err != nil {
-		return fmt.Errorf("Delta Dental SIGN IN button not found: %w", err)
+		return fmt.Errorf("Delta Dental #btn-login (SIGN IN) not found: %w", err)
 	}
 	if err := signInBtn.Click(proto.InputMouseButtonLeft, 1); err != nil {
 		return fmt.Errorf("click Delta Dental SIGN IN: %w", err)
@@ -132,13 +143,13 @@ func (s *Session) Login(input payers.SessionInput) error {
 
 	// ── Step 3: MFA if triggered ──────────────────────────────────────────────
 	if waitForMFAPrompt(page, 10*time.Second) {
-		log.Printf("[DeltaDental] MFA prompt detected")
+		log.Printf("[DeltaDental] MFA prompt detected — handling")
 		if err := handleMFA(page, input); err != nil {
 			return fmt.Errorf("Delta Dental MFA: %w", err)
 		}
 	}
 
-	// ── Wait for dashboard ────────────────────────────────────────────────────
+	// ── Wait for authenticated dashboard ──────────────────────────────────────
 	if err := waitForDashboard(page, 90*time.Second); err != nil {
 		return err
 	}
@@ -150,11 +161,13 @@ func (s *Session) Login(input payers.SessionInput) error {
 	return nil
 }
 
-// isOnDashboard returns true when the browser is on the authenticated portal dashboard.
+// ── helpers ───────────────────────────────────────────────────────────────────
+
+// isOnDashboard returns true when the session is authenticated and on the portal.
 func isOnDashboard(page *rod.Page) bool {
 	u := currentURL(page)
 	return strings.Contains(u, "provider.deltadental.com/dashboard") ||
-		strings.Contains(u, "portal.deltadental.com")
+		strings.Contains(u, "portal.deltadental.com/portal")
 }
 
 // waitForMFAPrompt returns true if the Confirmation Code input appears within timeout.
@@ -182,7 +195,7 @@ func waitForDashboard(page *rod.Page, timeout time.Duration) error {
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
-	return fmt.Errorf("Delta Dental login did not reach dashboard: last URL=%s", currentURL(page))
+	return fmt.Errorf("Delta Dental login did not reach dashboard after %s: last URL=%s", timeout, currentURL(page))
 }
 
 func storageStatePathFor(input payers.SessionInput) string {
@@ -194,16 +207,16 @@ func storageStatePathFor(input payers.SessionInput) string {
 }
 
 func slug(value string) string {
-	var builder strings.Builder
+	var b strings.Builder
 	for _, r := range strings.ToLower(value) {
 		if unicode.IsLetter(r) || unicode.IsDigit(r) {
-			builder.WriteRune(r)
+			b.WriteRune(r)
 		}
 	}
-	if builder.Len() == 0 {
+	if b.Len() == 0 {
 		return "payer"
 	}
-	return builder.String()
+	return b.String()
 }
 
 func currentURL(page *rod.Page) string {
@@ -225,6 +238,3 @@ func waitVisible(page *rod.Page, selector string, timeout time.Duration) bool {
 	visible, err := el.Visible()
 	return err == nil && visible
 }
-
-// Ensure the unused import of os is used via storageStatePathFor.
-var _ = os.Stat

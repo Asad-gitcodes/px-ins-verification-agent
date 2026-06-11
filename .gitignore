@@ -1,3 +1,4 @@
+# Agent config / secrets
 agent.config.json
 agent.*.json
 !internal/config/defaults.json
@@ -6,16 +7,37 @@ agent.keys.json
 agent.snapshot.json
 agent.snapshot-*.json
 agent.local.json
+
+# Auth session cookies (browser storage state)
 auth-*.json
+
+# Delta Dental subscriber hash cache
+dd-hash-cache-*.json
+
+# Office / credential files
 office-codes-*.json
+
+# Browser profile
 chrome-profile/
-queue/
+
+# Build outputs
 bin/
 dist/
 dist-local/
-coverage/
-artifacts/
-pdfs
-logs/
-.gocache/
 *.exe
+agent-mac
+
+# Runtime artifacts
+artifacts/
+pdfs/
+queue/
+logs/
+
+# Test coverage
+coverage/
+
+# Go toolchain cache
+.gocache/
+
+# macOS
+.DS_Store

@@ -73,7 +73,8 @@ func (a *Adapter) Run(ctx context.Context, input payers.SessionInput) (payers.Ru
 		return summary, fmt.Errorf("Delta Dental login: %w", err)
 	}
 
-	probe := ddapi.NewBrowserProbe(session)
+	hashCache := ddapi.LoadHashCache(input.RequestedOfficeKey)
+	probe := ddapi.NewBrowserProbe(session, hashCache)
 
 	outputDir := filepath.Join(
 		"artifacts",
@@ -137,6 +138,7 @@ func (a *Adapter) Run(ctx context.Context, input payers.SessionInput) (payers.Ru
 	}
 
 	closeBrowser()
+	hashCache.Flush()
 	log.Printf("[DeltaDental] phase 2 paused; raw probe files kept in %s", tempProbeDir)
 	return summary, nil
 
