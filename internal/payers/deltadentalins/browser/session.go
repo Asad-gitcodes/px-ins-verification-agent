@@ -51,6 +51,13 @@ func Launch(input payers.SessionInput) (*Session, error) {
 	}, nil
 }
 
+func (s *Session) StorageStatePath() string {
+	if s == nil {
+		return ""
+	}
+	return s.storageStatePath
+}
+
 func (s *Session) Close() error {
 	if s == nil || s.browser == nil {
 		return nil
@@ -97,7 +104,17 @@ func (s *Session) Login(input payers.SessionInput) error {
 	// ── Fast path: session cookie still valid ─────────────────────────────────
 	if isOnDashboard(page) {
 		log.Printf("[DeltaDental] session still active, skipping login")
-		return s.browser.SaveStorageState(s.storageStatePath)
+		if err := s.browser.SaveStorageState(s.storageStatePath); err != nil {
+			return err
+		}
+		// Navigate to portal.deltadental.com for same-origin API access.
+		const portalHomeURL = "https://portal.deltadental.com/portal/home"
+		if navErr := page.Navigate(portalHomeURL); navErr != nil {
+			log.Printf("[DeltaDental] portal home navigation failed (non-fatal): %v", navErr)
+		} else {
+			_ = page.Timeout(15 * time.Second).WaitLoad()
+		}
+		return nil
 	}
 
 	// ── Step 1: username → Next ───────────────────────────────────────────────
@@ -117,7 +134,8 @@ func (s *Session) Login(input payers.SessionInput) error {
 	if err := nextBtn.Click(proto.InputMouseButtonLeft, 1); err != nil {
 		return fmt.Errorf("click Delta Dental Next: %w", err)
 	}
-	time.Sleep(2 * time.Second)
+	time.Sleep(3 * time.Second)
+	log.Printf("[DeltaDental] after Next click, URL=%s", currentURL(page))
 
 	// ── Step 2: password → SIGN IN ────────────────────────────────────────────
 	// After clicking Next the portal loads a second form with #password.
@@ -159,6 +177,17 @@ func (s *Session) Login(input payers.SessionInput) error {
 		return err
 	}
 	log.Printf("[DeltaDental] login complete: %s", currentURL(page))
+
+	// Navigate to portal.deltadental.com so that subsequent fetch() API calls
+	// are same-origin and include the portal session cookies automatically.
+	const portalHomeURL = "https://portal.deltadental.com/portal/home"
+	log.Printf("[DeltaDental] navigating to portal home for API context")
+	if err := page.Navigate(portalHomeURL); err != nil {
+		log.Printf("[DeltaDental] portal home navigation failed (non-fatal): %v", err)
+	} else {
+		_ = page.Timeout(15 * time.Second).WaitLoad()
+		log.Printf("[DeltaDental] portal home URL=%s", currentURL(page))
+	}
 	return nil
 }
 

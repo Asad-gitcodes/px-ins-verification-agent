@@ -57,6 +57,17 @@ type DaySelectRequest struct {
 	ScraperConfig                 *models.ScraperConfig
 }
 
+// RangeSelectRequest selects appointments across a date range (tomorrow through today+FutureRangeDays)
+// filtered to the given set of payer ElectIDs. Used by run_all when addDays > 1.
+type RangeSelectRequest struct {
+	OfficeKey                     string
+	PayerIDs                      []string
+	FutureRangeDays               int
+	RetryErrorsOnly               bool
+	IgnoreAppointmentStatusFilter bool
+	ScraperConfig                 *models.ScraperConfig
+}
+
 type queryResponse struct {
 	ResultData []models.Appointment `json:"ResultData"`
 	Data       []models.Appointment `json:"data"`
@@ -192,6 +203,67 @@ func (s *Selector) SelectForDay(ctx context.Context, req DaySelectRequest) ([]mo
 		return nil, err
 	}
 	return dedupeByPatNumOrdinal(rows), nil
+}
+
+// SelectForRange fetches appointments between tomorrow and today+FutureRangeDays,
+// filtered to the provided set of payer ElectIDs.
+func (s *Selector) SelectForRange(ctx context.Context, req RangeSelectRequest) ([]models.Appointment, error) {
+	apiConfig, err := queryAPIConfig(req.ScraperConfig)
+	if err != nil {
+		return nil, err
+	}
+	query := s.buildRangeQuery(req)
+	rows, err := s.runQuery(ctx, apiConfig, req.OfficeKey, query)
+	if err != nil {
+		return nil, err
+	}
+	return dedupeByPatNumOrdinal(rows), nil
+}
+
+func (s *Selector) buildRangeQuery(req RangeSelectRequest) string {
+	startDate, endDate := resolveSweepWindow(req.FutureRangeDays)
+	statusFilterClause := ""
+	if !req.IgnoreAppointmentStatusFilter {
+		statusFilterClause = fmt.Sprintf(`
+        AND NOT EXISTS (
+            SELECT 1 FROM apptfield af
+            WHERE af.AptNum = a.AptNum
+            AND af.FieldName = 'HRDView'
+            AND %s
+        )`, terminalAppointmentFieldClause(req.RetryErrorsOnly))
+	}
+	carrierJoin := "JOIN carrier c ON c.CarrierNum=ip.CarrierNum"
+	if !isWildcardPayerIDs(req.PayerIDs) {
+		carrierJoin += fmt.Sprintf(" AND c.ElectID IN (%s)", quoteSQLList(req.PayerIDs))
+	}
+	return fmt.Sprintf(`SELECT a.AptNum AS aptNum, DATE_FORMAT(a.AptDateTime,'%%m-%%d-%%Y') AS appointmentDate,
+        a.PatNum AS patNum, p.FName AS fName, p.LName AS lName, DATE_FORMAT(p.Birthdate,'%%m-%%d-%%Y')
+        AS dob, p.Gender AS gender, sub_p.FName AS subFName, sub_p.LName AS subLName,
+        DATE_FORMAT(sub_p.Birthdate,'%%m-%%d-%%Y') AS subDOB, sub_p.Gender AS subGender,
+        ins.SubscriberID AS subscriberId,
+        sub_p.SSN AS ssn, ip.GroupNum AS groupNum, ip.GroupName AS groupName,
+        c.CarrierNum AS carrierNum, c.CarrierName AS CarrierName, c.ElectID AS payerId,
+        pp.Ordinal AS ordinal, pp.Relationship AS relationship, ins.InsSubNum AS insSubNum,
+        ins.PlanNum AS planNum,
+        GROUP_CONCAT(DISTINCT pc.ProcCode ORDER BY pc.ProcCode SEPARATOR ', ')
+        AS treatmentPlanProcCodes FROM appointment a
+        JOIN patient p ON p.PatNum=a.PatNum
+        JOIN patplan pp ON pp.PatNum=a.PatNum AND pp.Ordinal IN (1,2)
+        JOIN inssub ins ON ins.InsSubNum=pp.InsSubNum
+        JOIN patient sub_p ON sub_p.PatNum=ins.Subscriber
+        JOIN insplan ip ON ip.PlanNum=ins.PlanNum
+        %s
+        LEFT JOIN procedurelog pl ON pl.PatNum=a.PatNum AND pl.ProcStatus='1'
+        LEFT JOIN procedurecode pc ON pc.CodeNum=pl.CodeNum AND pc.ProcCode REGEXP '^D[0-9]+$'
+        WHERE a.AptStatus=1
+        AND DATE(a.AptDateTime) BETWEEN '%s' AND '%s'
+        %s
+        GROUP BY a.AptNum,a.AptDateTime,a.PatNum,p.FName,p.LName,p.Birthdate,p.Gender,
+        sub_p.FName,sub_p.LName,sub_p.Birthdate,sub_p.Gender,ins.SubscriberID,sub_p.SSN,
+        ip.GroupNum,ip.GroupName,c.CarrierNum,c.CarrierName,c.ElectID,pp.Ordinal,pp.Relationship,
+        ins.InsSubNum,ins.PlanNum
+        ORDER BY a.AptDateTime ASC
+        LIMIT %d;`, carrierJoin, startDate, endDate, statusFilterClause, s.queryLimit)
 }
 
 func (s *Selector) runQuery(ctx context.Context, apiConfig *QueryAPIConfig, officeKey string, query string) ([]models.Appointment, error) {

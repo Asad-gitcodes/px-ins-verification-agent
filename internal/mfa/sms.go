@@ -185,13 +185,18 @@ func parseSMSDateTime(raw string) (time.Time, error) {
 		"2006-01-02 15:04:05",
 	}
 
+	loc := time.Local
 	var lastErr error
 	for _, layout := range layouts {
-		// Parse as UTC — the DB (MariaDB) stores DateTimeReceived in UTC.
-		t, err := time.Parse(layout, raw)
+		var t time.Time
+		var err error
+		if layout == time.RFC3339 {
+			t, err = time.Parse(layout, raw)
+		} else {
+			t, err = time.ParseInLocation(layout, raw, loc)
+		}
 		if err == nil {
-			// Ensure the result is in UTC so comparisons against time.Now().UTC() are correct.
-			return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), time.UTC), nil
+			return t, nil
 		}
 		lastErr = err
 	}

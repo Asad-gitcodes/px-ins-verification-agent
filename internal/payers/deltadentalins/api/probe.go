@@ -14,6 +14,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -27,6 +28,10 @@ import (
 
 	"github.com/go-rod/rod"
 )
+
+// ErrSessionExpired is returned when the portal API responds with 401/403.
+// The adapter can detect this and trigger a fresh login.
+var ErrSessionExpired = errors.New("delta dental session expired")
 
 // ── Portal endpoints ──────────────────────────────────────────────────────────
 
@@ -316,7 +321,7 @@ func (p *BrowserProbe) postJSON(rawURL string, body any, out any) error {
 		return fmt.Errorf("404 not found")
 	}
 	if status == 401 || status == 403 {
-		return fmt.Errorf("session expired or unauthorized (status=%d)", status)
+		return fmt.Errorf("%w (status=%d)", ErrSessionExpired, status)
 	}
 	if status < 200 || status >= 300 {
 		return fmt.Errorf("POST %s status=%d body=%s", rawURL, status, truncate(respBody, 300))
@@ -350,7 +355,7 @@ func (p *BrowserProbe) getJSON(rawURL string, extraHeaders map[string]string, ou
 		return err
 	}
 	if status == 401 || status == 403 {
-		return fmt.Errorf("session expired or unauthorized (status=%d)", status)
+		return fmt.Errorf("%w (status=%d)", ErrSessionExpired, status)
 	}
 	if status < 200 || status >= 300 {
 		return fmt.Errorf("GET %s status=%d body=%s", rawURL, status, truncate(respBody, 300))

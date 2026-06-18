@@ -22,13 +22,15 @@ import (
 )
 
 func main() {
-	configPath  := flag.String("config", "agent.config.json", "Path to optional config file for non-required settings")
-	runOnce     := flag.Bool("run-once", false, "Run once and exit")
-	showVersion := flag.Bool("version", false, "Print version and exit")
+	configPath   := flag.String("config", "agent.config.json", "Path to optional config file for non-required settings")
+	runOnce      := flag.Bool("run-once", false, "Run once and exit")
+	showVersion  := flag.Bool("version", false, "Print version and exit")
+	snapshotPath := flag.String("snapshot", "", "Path to a local snapshot JSON file; bypasses PatCon bootstrap when set")
+	addDays      := flag.Int("add-days", 1, "Number of days ahead to fetch appointments when using --run-once")
 
 	flagOfficeKey   := flag.String("office-key", "", "Office key (required)")
-	flagPatconURL   := flag.String("patcon-url", "", "Patcon bootstrap URL (required)")
-	flagPatconToken := flag.String("patcon-token", "", "Patcon bearer token (required)")
+	flagPatconURL   := flag.String("patcon-url", "", "Patcon bootstrap URL (required without --snapshot)")
+	flagPatconToken := flag.String("patcon-token", "", "Patcon bearer token (required without --snapshot)")
 	flagPort        := flag.String("port", "", "API listen port, e.g. 8080 (required)")
 	flagAPIToken    := flag.String("api-token", "", "API bearer token (defaults to patcon-token if omitted)")
 	flag.Parse()
@@ -40,16 +42,19 @@ func main() {
 		return
 	}
 
-	// Required flags must all be present — fail before touching any config file.
+	// Required flags — PatCon URL/token are only required when not using --snapshot.
 	var missing []string
 	if *flagOfficeKey == "" {
 		missing = append(missing, "--office-key")
 	}
-	if *flagPatconURL == "" {
-		missing = append(missing, "--patcon-url")
-	}
-	if *flagPatconToken == "" {
-		missing = append(missing, "--patcon-token")
+	usingSnapshot := *snapshotPath != ""
+	if !usingSnapshot {
+		if *flagPatconURL == "" {
+			missing = append(missing, "--patcon-url")
+		}
+		if *flagPatconToken == "" {
+			missing = append(missing, "--patcon-token")
+		}
 	}
 	if *flagPort == "" {
 		missing = append(missing, "--port")
@@ -77,6 +82,8 @@ func main() {
 	cfg.OfficeKey = *flagOfficeKey
 	cfg.Bootstrap.Patcon.URL = *flagPatconURL
 	cfg.Bootstrap.Patcon.Token = *flagPatconToken
+	cfg.SnapshotPath = *snapshotPath
+	cfg.RunOnceAddDays = *addDays
 	cfg.API.Enabled = true
 	cfg.API.ListenAddr = "127.0.0.1:" + *flagPort
 	if *flagAPIToken != "" {

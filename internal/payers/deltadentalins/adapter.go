@@ -3,6 +3,7 @@ package deltadentalins
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -35,7 +36,11 @@ func NewAdapter(control *controlplane.Client) *Adapter {
 func (a *Adapter) PayerURL() string { return PayerURL }
 
 func (a *Adapter) Supports(payerURL string) bool {
-	return strings.EqualFold(payerURL, PayerURL)
+	switch strings.ToLower(strings.TrimSpace(payerURL)) {
+	case "deltadentalins.com", "deltadentalwa.com":
+		return true
+	}
+	return false
 }
 
 func (a *Adapter) Run(ctx context.Context, input payers.SessionInput) (payers.RunSummary, error) {
@@ -99,6 +104,8 @@ func (a *Adapter) Run(ctx context.Context, input payers.SessionInput) (payers.Ru
 	}
 	var tasks []appointmentTask
 
+	sessionRefreshed := false
+
 	// Phase 1: browser open — search each patient, write probe files.
 	for _, appointment := range input.Appointments {
 		select {
@@ -114,10 +121,22 @@ func (a *Adapter) Run(ctx context.Context, input payers.SessionInput) (payers.Ru
 
 		task := appointmentTask{appointment: appointment, tpCodes: tpCodes}
 
-		bundle, err := probe.SearchAndFetchPatient(appointment)
-		if err != nil {
-			log.Printf("[DeltaDental] probe failed patNum=%s aptNum=%s: %v", appointment.PatNum, appointment.AptNum, err)
-			writeProbeError(tempProbeDir, appointment, err)
+		bundle, probeErr := probe.SearchAndFetchPatient(appointment)
+		if errors.Is(probeErr, ddapi.ErrSessionExpired) && !sessionRefreshed {
+			// Stale session cookie detected — delete the auth file and re-login once.
+			log.Printf("[DeltaDental] session expired, clearing auth and re-logging in")
+			_ = os.Remove(session.StorageStatePath())
+			if loginErr := session.Login(input); loginErr != nil {
+				return summary, fmt.Errorf("Delta Dental re-login after session expiry: %w", loginErr)
+			}
+			sessionRefreshed = true
+			// Retry the same appointment with the fresh session.
+			bundle, probeErr = probe.SearchAndFetchPatient(appointment)
+		}
+
+		if probeErr != nil {
+			log.Printf("[DeltaDental] probe failed patNum=%s aptNum=%s: %v", appointment.PatNum, appointment.AptNum, probeErr)
+			writeProbeError(tempProbeDir, appointment, probeErr)
 			task.report = payers.BuildNotFoundReport(appointment)
 		} else if bundle == nil {
 			task.report = payers.BuildUnableToDetermineReport(appointment)

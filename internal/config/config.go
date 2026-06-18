@@ -13,9 +13,11 @@ var embeddedDefaults []byte
 type Config struct {
 	path string `json:"-"`
 
-	OfficeKey string          `json:"officeKey"`
-	Bootstrap BootstrapConfig `json:"bootstrapUrl"`
-	API       APIConfig       `json:"api"`
+	OfficeKey    string          `json:"officeKey"`
+	Bootstrap    BootstrapConfig `json:"bootstrapUrl"`
+	API          APIConfig       `json:"api"`
+	SnapshotPath    string `json:"-"` // set via --snapshot CLI flag; bypasses PatCon
+	RunOnceAddDays  int    `json:"-"` // set via --add-days CLI flag; controls appointment lookahead
 
 	// Local holds settings from the optional agent.local.json file.
 	// It is loaded alongside the main config and is never written back.

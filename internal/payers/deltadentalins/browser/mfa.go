@@ -39,9 +39,10 @@ func handleMFA(page *rod.Page, input payers.SessionInput) error {
 
 // completeSMSMFA reads the 6-digit OTP from the office SMS inbox and submits it.
 func completeSMSMFA(page *rod.Page, input payers.SessionInput) error {
-	// DB stores UTC timestamps; compare against UTC now with a 2-minute lookback
-	// to absorb any clock skew between the Mac and the DB server.
-	codeSentAt := time.Now().UTC().Add(-2 * time.Minute)
+	// DB stores Pacific time; Mac may be in a different timezone (e.g. Central).
+	// Use a 3-hour lookback so the most recent SMS is always accepted regardless
+	// of timezone offset between Mac and DB server.
+	codeSentAt := time.Now().Add(-3 * time.Hour)
 
 	smsCfg, err := mfa.SMSConfigFromScraperConfig(input.ScraperConfig, input.RequestedOfficeKey)
 	if err != nil {

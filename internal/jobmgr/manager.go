@@ -108,11 +108,34 @@ func New(cfg *config.Config, control *controlplane.Client, registry *payers.Regi
 	}
 }
 
+
+// SeedSnapshot loads a WorkSnapshot from a JSON file and stores it in the cache.
+// When seeded, the agent uses this snapshot instead of fetching from PatCon.
+func (m *Manager) SeedSnapshot(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read snapshot file %s: %w", path, err)
+	}
+	var snapshot cache.WorkSnapshot
+	if err := json.Unmarshal(data, &snapshot); err != nil {
+		return fmt.Errorf("parse snapshot file %s: %w", path, err)
+	}
+	snapshot.OfficeKey = m.cfg.OfficeKey
+	snapshot.ExpiresAt = time.Now().Add(24 * time.Hour)
+	if snapshot.CreatedAt.IsZero() {
+		snapshot.CreatedAt = time.Now().UTC()
+	}
+	if err := m.cache.SaveSnapshot(&snapshot); err != nil {
+		return fmt.Errorf("seed snapshot cache: %w", err)
+	}
+	log.Printf("snapshot seeded from %s: %d payers", path, len(snapshot.Payers))
+	return nil
+}
 func (m *Manager) Run(ctx context.Context, runOnce bool) error {
 	if runOnce {
 		return m.runBlocking(ctx, TriggerRequest{
 			Action:      "run_all",
-			AddDays:     1,
+			AddDays:     m.cfg.RunOnceAddDays,
 			RequestedBy: "cli",
 		})
 	}
@@ -364,14 +387,28 @@ func (m *Manager) runAll(ctx context.Context, runID string, req TriggerRequest, 
 	rows := dedupeAppointmentsByPatNumOrdinal(req.Appointments)
 	if len(rows) == 0 {
 		var err error
-		rows, err = m.appts.SelectForDay(ctx, appointments.DaySelectRequest{
-			OfficeKey:                     snapshot.OfficeKey,
-			PayerIDs:                      collectPayerIDs(activePayers),
-			AddDays:                       req.AddDays,
-			RetryErrorsOnly:               true,
-			IgnoreAppointmentStatusFilter: m.cfg.Testing.ShouldUseAllAppointments(),
-			ScraperConfig:                 snapshot.ScraperConfig,
-		})
+		// When addDays > 1, use a date-range query (tomorrow through today+addDays)
+		// so that appointments beyond tomorrow appear in the bucket. The default
+		// sweep always runs with addDays=1 (point-in-time = tomorrow).
+		if req.AddDays > 1 {
+			rows, err = m.appts.SelectForRange(ctx, appointments.RangeSelectRequest{
+				OfficeKey:                     snapshot.OfficeKey,
+				PayerIDs:                      collectPayerIDs(activePayers),
+				FutureRangeDays:               req.AddDays,
+				RetryErrorsOnly:               true,
+				IgnoreAppointmentStatusFilter: m.cfg.Testing.ShouldUseAllAppointments(),
+				ScraperConfig:                 snapshot.ScraperConfig,
+			})
+		} else {
+			rows, err = m.appts.SelectForDay(ctx, appointments.DaySelectRequest{
+				OfficeKey:                     snapshot.OfficeKey,
+				PayerIDs:                      collectPayerIDs(activePayers),
+				AddDays:                       req.AddDays,
+				RetryErrorsOnly:               true,
+				IgnoreAppointmentStatusFilter: m.cfg.Testing.ShouldUseAllAppointments(),
+				ScraperConfig:                 snapshot.ScraperConfig,
+			})
+		}
 		if err != nil {
 			return err
 		}
@@ -422,11 +459,15 @@ func MapServerConfig(cfg *config.Config, sc *models.ServerConfig) (*cache.WorkSn
 		if p.PayerURL == "" {
 			continue
 		}
+		payerIDs := p.PayerIDs
+		if strings.EqualFold(p.PayerURL, "deltadentalwa.com") && len(payerIDs) == 0 {
+			payerIDs = []string{"91062"}
+		}
 		payers = append(payers, models.Payer{
 			ID:       p.ID,
 			PayerURL: p.PayerURL,
 			Name:     p.Name,
-			PayerIDs: p.PayerIDs,
+			PayerIDs: payerIDs,
 			Credential: models.CredentialCandidate{
 				Username:     p.Username,
 				Password:     p.Password,
