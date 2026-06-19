@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"os"
 	"time"
@@ -12,6 +11,15 @@ import (
 	"insurance-benefit-agent-go/internal/jobmgr"
 	"insurance-benefit-agent-go/internal/payers"
 	"insurance-benefit-agent-go/internal/payers/deltadentalins"
+	"insurance-benefit-agent-go/internal/payers/deltadentalwa"
+	"insurance-benefit-agent-go/internal/payers/dentalxchange"
+	"insurance-benefit-agent-go/internal/payers/dentaquest"
+	"insurance-benefit-agent-go/internal/payers/dentical"
+	"insurance-benefit-agent-go/internal/payers/emblemhealth"
+	"insurance-benefit-agent-go/internal/payers/guardian"
+	"insurance-benefit-agent-go/internal/payers/metlife"
+	"insurance-benefit-agent-go/internal/payers/uhcdental"
+	"insurance-benefit-agent-go/internal/payers/vynetrellis"
 	"insurance-benefit-agent-go/internal/triggerapi"
 	"insurance-benefit-agent-go/internal/updater"
 )
@@ -26,14 +34,18 @@ type App struct {
 func New(cfg *config.Config) (*App, error) {
 	control := controlplane.NewClient(cfg)
 	registry := payers.NewRegistry()
+	registry.Register(dentical.NewAdapter())
+	registry.Register(dentalxchange.NewAdapter())
+	registry.Register(dentaquest.NewAdapter(control))
 	registry.Register(deltadentalins.NewAdapter(control))
+	registry.Register(deltadentalwa.NewAdapter(control))
+	registry.Register(emblemhealth.NewAdapter())
+	registry.Register(guardian.NewAdapter())
+	registry.Register(metlife.NewAdapter(control))
+	registry.Register(uhcdental.NewAdapter(control))
+	registry.Register(vynetrellis.NewAdapter())
 
 	manager := jobmgr.New(cfg, control, registry)
-	if cfg.SnapshotPath != "" {
-		if err := manager.SeedSnapshot(cfg.SnapshotPath); err != nil {
-			return nil, fmt.Errorf("seed snapshot: %w", err)
-		}
-	}
 	app := &App{cfg: cfg, manager: manager}
 	if cfg.API.Enabled {
 		updateSvc, err := updater.New(cfg.Updates, cfg.Bootstrap.Patcon.URL, cfg.Bootstrap.Patcon.Token, cfg.Path(), os.Args[1:])
